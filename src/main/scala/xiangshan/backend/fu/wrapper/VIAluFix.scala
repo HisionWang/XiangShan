@@ -71,7 +71,7 @@ class VIAluSrcTypeModule extends Module {
     (isVextF4 && (vsewF4 === VSew.e64)) ||
     (isVextF8 && (vsewF8 === VSew.e64))
   // Todo: use it
-  private val illegal = widenIllegal || narrowIllegal || vextIllegal
+
 
   private val intType = Cat(0.U(1.W), isSign)
 
@@ -106,21 +106,36 @@ class VIAluSrcTypeModule extends Module {
     (format === VialuFixType.FMT.MMM) -> Cat(Vs2IntType.mask, Vs1IntType.mask, VdType.mask),
   )).asTypeOf(new Vs2Vs1VdType)
 
+  private val isVdot = opcode === VialuOpcode.vdot
+  private val vdotTypes =
+  Cat(
+    0.U(1.W), isSign, VSew.e8,   // vs2
+    0.U(1.W), isSign, VSew.e8,   // vs1
+    0.U(1.W), isSign, VSew.e32   // vd
+  ).asTypeOf(new Vs2Vs1VdType)
+
   private val vs2Type = Mux1H(Seq(
+    isVdot -> vdotTypes.vs2,
     isDstMask -> maskTypes.vs2,
     isExt -> Cat(intType, vextSews.vs2),
     (!isExt && !isDstMask) -> Cat(intType, addSubSews.vs2),
   ))
   private val vs1Type = Mux1H(Seq(
+    isVdot -> vdotTypes.vs1,
     isDstMask -> maskTypes.vs1,
     isExt -> Cat(intType, vextSews.vs1),
     (!isExt && !isDstMask) -> Cat(intType, addSubSews.vs1),
   ))
   private val vdType = Mux1H(Seq(
+    isVdot -> vdotTypes.vd,
     isDstMask -> maskTypes.vd,
     isExt -> Cat(intType, vextSews.vd),
     (!isExt && !isDstMask) -> Cat(intType, addSubSews.vd),
   ))
+
+  private val vdotIllegal = isVdot && vsew =/= VSew.e8
+  private val illegal = widenIllegal || narrowIllegal || vextIllegal || vdotIllegal
+
 
   io.out.vs2Type := vs2Type
   io.out.vs1Type := vs1Type
@@ -130,7 +145,7 @@ class VIAluSrcTypeModule extends Module {
   io.out.isVextF4 := isVextF4
   io.out.isVextF8 := isVextF8
 }
-
+import yunsuan.vector.alu.VDot64b
 class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(cfg) {
   XSError(io.in.valid && io.in.bits.ctrl.fuOpType === VialuFixType.dummy, "VialuF OpType not supported")
 
@@ -145,6 +160,9 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
   private val vs1Split = Module(new VecDataSplitModule(dataWidth, dataWidthOfDataModule))
   private val oldVdSplit = Module(new VecDataSplitModule(dataWidth, dataWidthOfDataModule))
   private val vIntFixpAlus = Seq.fill(numVecModule)(Module(new VIntFixpAlu64b))
+  private val vdotUnits =
+    Seq.fill(numVecModule)(Module(new VDot64b))
+
   private val mgu = Module(new Mgu(dataWidth))
   private val mgtu = Module(new Mgtu(dataWidth))
 
@@ -262,6 +280,14 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
       mod.io.oldVd := oldVdUsed(i)
   }
 
+  vdotUnits.zipWithIndex.foreach {
+    case (mod, i) =>
+      mod.io.fire := io.in.valid
+      mod.io.vs1 := vs1VecUsed(i)
+      mod.io.vs2 := vs2VecUsed(i)
+  }
+
+
   /**
    * [[mgu]]'s in connection
    */
@@ -272,7 +298,21 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
   //private val outEewVs1 = DelayN(eewVs1, latency)
   private val outEewVs1 = SNReg(eewVs1, latency)
 
-  private val outVdTmp = Cat(vIntFixpAlus.reverse.map(_.io.vd))
+  //private val outVdTmp = Cat(vIntFixpAlus.reverse.map(_.io.vd))
+
+  private val normalVd =
+    Cat(vIntFixpAlus.reverse.map(_.io.vd))
+
+  private val dotVd =
+    Cat(vdotUnits.reverse.map(_.io.vd))
+
+  private val outIsVdot =
+    VialuFixType.getOpcode(outCtrl.fuOpType) === VialuOpcode.vdot
+
+  private val outVdTmp =
+    Mux(outIsVdot, dotVd, normalVd)
+
+
   private val outVd = Mux1H(Seq(
     (outIsVwsllEewVdIs64 || !outIsVwsll) -> outVdTmp,
     outIsVwsllEewVdIs32 -> Cat(outVdTmp(127,  96), outVdTmp(63, 32), outVdTmp( 95, 64), outVdTmp(31,  0)),
@@ -317,9 +357,18 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
   private val narrowNeedCat = outVecCtrl.vuopIdx(0).asBool && narrow
   private val outNarrowVd = Mux(narrowNeedCat, Cat(outNarrow, outOldVd(dataWidth / 2 - 1, 0)), Cat(outOldVd(dataWidth - 1, dataWidth / 2), outNarrow))
   private val outVxsatReal = Mux(narrowNeedCat, Cat(outVxsat(numBytes / 2 - 1, 0), 0.U((numBytes / 2).W)), outVxsat)
+  
+  //private val outIsVdot =
+  //  VialuFixType.getOpcode(outCtrl.fuOpType) === VialuOpcode.vdot
 
-  private val outEew = Mux(outWiden, outVecCtrl.vsew + 1.U, outVecCtrl.vsew)
-
+  //private val outEew = Mux(outWiden, outVecCtrl.vsew + 1.U, outVecCtrl.vsew)
+  private val outEew = MuxCase(
+    outVecCtrl.vsew,
+    Seq(
+      outIsVdot -> (outVecCtrl.vsew + 2.U),
+      outWiden  -> (outVecCtrl.vsew + 1.U)
+    )
+  )
   /*
    * vl of vmv.x.s is 1
    */

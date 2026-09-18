@@ -186,6 +186,15 @@ case class VST(src2: BitPat, fuOp: BitPat, strided: Boolean = false, indexed: Bo
 
 object VecDecoder extends DecodeConstants {
   val opivv: Array[(BitPat, XSDecodeBase)] = Array(
+    VDOT_VV -> OPIVV(
+      FuType.vialuF,
+      VialuFixType.vdot_vv,
+      T, //写向量寄存器 vd
+      F, //不写 mask 寄存器
+      F, //不写 vxsat
+      UopSplitType.VEC_VVV //两个源操作数为向量（其实都已经默认好了）
+    ),
+
     VADD_VV         -> OPIVV(FuType.vialuF, VialuFixType.vadd_vv, T, F, F),
     VSUB_VV         -> OPIVV(FuType.vialuF, VialuFixType.vsub_vv, T, F, F),
 

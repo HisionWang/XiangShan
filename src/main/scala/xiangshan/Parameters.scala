@@ -557,7 +557,7 @@ case class DebugOptions
   AlwaysBasicDiff: Boolean = true,
   FullBasicDiff: Boolean = false,
   EnableDebug: Boolean = false,
-  EnablePerfDebug: Boolean = true,
+  EnablePerfDebug: Boolean = false,
   PerfLevel: String = "VERBOSE",
   EnableXMR: Boolean = true,
   SimMemSize: Long = 8190L * 1024 * 1024 * 1024, // same as PMA, (0x80000000L, 0x80000000000L)

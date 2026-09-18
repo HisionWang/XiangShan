@@ -91,7 +91,7 @@ trait BitFieldsVec { this: Riscv32BitInst =>
   }
 
   def isVecArith = {
-    this.OPCODE5Bit === xiangshan.backend.decode.isa.bitfield.OPCODE5Bit.OP_V
+    this.OPCODE5Bit === xiangshan.backend.decode.isa.bitfield.OPCODE5Bit.OP_V || this.isVdot
   }
 
   def isOPIVV = {
@@ -128,6 +128,13 @@ trait BitFieldsVec { this: Riscv32BitInst =>
     this.OPCODE === xiangshan.backend.decode.isa.bitfield.OPCODE7Bit.VECTOR_ARITH &&
       this.FUNCT3 === "b110".U
   }
+  def isVdot = {
+    this.OPCODE === xiangshan.backend.decode.isa.bitfield.OPCODE7Bit.CUSTOM_0 &&
+    this.FUNCT6 === "b110000".U &&
+    this.VM === 1.U &&
+    this.FUNCT3 === "b000".U
+  }
+
 }
 
 trait BitFieldsRVK { this: Riscv32BitInst =>
@@ -194,4 +201,5 @@ object OPCODE5Bit {
 
 object OPCODE7Bit {
   val VECTOR_ARITH = "b1010111".U
+  val CUSTOM_0     = "b0001011".U
 }
