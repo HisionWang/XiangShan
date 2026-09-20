@@ -160,8 +160,7 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
   private val vs1Split = Module(new VecDataSplitModule(dataWidth, dataWidthOfDataModule))
   private val oldVdSplit = Module(new VecDataSplitModule(dataWidth, dataWidthOfDataModule))
   private val vIntFixpAlus = Seq.fill(numVecModule)(Module(new VIntFixpAlu64b))
-  private val vdotUnits =
-    Seq.fill(numVecModule)(Module(new VDot64b))
+  private val vdotUnit = Module(new VDot64b)
 
   private val mgu = Module(new Mgu(dataWidth))
   private val mgtu = Module(new Mgtu(dataWidth))
@@ -280,12 +279,9 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
       mod.io.oldVd := oldVdUsed(i)
   }
 
-  vdotUnits.zipWithIndex.foreach {
-    case (mod, i) =>
-      mod.io.fire := io.in.valid
-      mod.io.vs1 := vs1VecUsed(i)
-      mod.io.vs2 := vs2VecUsed(i)
-  }
+  vdotUnit.io.fire := io.in.valid
+  vdotUnit.io.vs1 := vs1Split.io.outVec64b(0)
+  vdotUnit.io.vs2 := vs2Split.io.outVec64b(0)
 
 
   /**
@@ -303,8 +299,8 @@ class VIAluFix(cfg: FuConfig)(implicit p: Parameters) extends VecPipedFuncUnit(c
   private val normalVd =
     Cat(vIntFixpAlus.reverse.map(_.io.vd))
 
-  private val dotVd =
-    Cat(vdotUnits.reverse.map(_.io.vd))
+  private val dotResult32 = vdotUnit.io.vd
+  private val dotVd = Cat( 0.U((dataWidth - 32).W), dotResult32)
 
   private val outIsVdot =
     VialuFixType.getOpcode(outCtrl.fuOpType) === VialuOpcode.vdot
